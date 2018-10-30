@@ -9,12 +9,14 @@ import matplotlib.pyplot as plt
 # 或者import urllib
 from six.moves import urllib
 from sklearn.pipeline import Pipeline
+from sklearn.pipeline import FeatureUnion
 from sklearn.preprocessing import Imputer
 from pandas.plotting import scatter_matrix
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import LabelBinarizer
+from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.model_selection import StratifiedShuffleSplit
@@ -26,13 +28,12 @@ HOUSING_URL = DOWNLOAD_ROOT + HOUSING_PATH + "/housing.tgz"
 
 
 class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
-
     rooms_ix, bedrooms_ix, population_ix, household_ix = 3, 4, 5, 6
 
     def __init__(self, add_bedrooms_per_room=True):
         self.add_bedrooms_per_room = add_bedrooms_per_room
 
-    def fix(self, X, y=None):
+    def fit(self, X, y=None):
         return self
 
     def transform(self, X, y=None):
@@ -45,8 +46,18 @@ class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
             return np.c_[X, rooms_per_household, population_per_household]
 
 
-def fetch_housing_data(housing_url=HOUSING_URL, housing_path=HOUSING_PATH):
+class DataFrameSelector(BaseEstimator, TransformerMixin):
+    def __init__(self, attribute_names):
+        self.attribute_names = attribute_names
 
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        return X[self.attribute_names].values
+
+
+def fetch_housing_data(housing_url=HOUSING_URL, housing_path=HOUSING_PATH):
     def schedule(a, b, c):
         """
         下载进度函数
@@ -223,6 +234,8 @@ def process_missing_data(housing):
     X = imputer.transform(housing_num)
     housing_tr = pd.DataFrame(X, columns=housing_num.columns)
 
+
+def transform_object_to_num(housing):
     """
     处理文字属性
     方法1：标签转化
@@ -235,19 +248,41 @@ def process_missing_data(housing):
         housing_cat_encoded = encoder.fit_transform(housing_cat)
         encoder = OneHotEncoder()
         housing_cat_1hot = encoder.fit_transform(housing_cat_encoded.reshape(-1, 1))
+    方法3：一步完成方法2
+        encoder = LabelBinarizer()
+        housing_cat_1hot = encoder.fit_transform(housing_cat)
     """
+
     housing_cat = housing["ocean_proximity"]
     encoder = LabelBinarizer()
     housing_cat_1hot = encoder.fit_transform(housing_cat)
+
+    # 自定义转化量
     attr_adder = CombinedAttributesAdder(add_bedrooms_per_room=False)
     housing_extra_attribs = attr_adder.transform(housing.values)
 
+
+def pipeline_transform(housing):
+    housing_num = housing.drop("ocean_proximity", axis=1)
+
+    num_attribs = list(housing_num)
+    cat_attribs = ["ocean_proximity"]
     num_pipeline = Pipeline([
+        ('selector', DataFrameSelector(num_attribs)),
         ('imputer', Imputer(strategy="median")),
         ('attribs_adder', CombinedAttributesAdder()),
         ('std_scaler', StandardScaler()),
     ])
-    housing_num_tr = num_pipeline.fit_transform(housing_num)
+    cat_pipeline = Pipeline([
+        ('selector', DataFrameSelector(cat_attribs)),
+        ('label_binarizer', LabelBinarizer()),
+    ])
+    full_pipeline = FeatureUnion(transformer_list=[
+        ("num_pipeline", num_pipeline),
+        ("cat_pipeline", cat_pipeline),
+    ])
+    housing_prepared = full_pipeline.fit_transform(housing)
+    return housing_prepared, full_pipeline
 
 
 def cleaning_data():
@@ -255,10 +290,24 @@ def cleaning_data():
     train_data, test_data = get_split_data(housing)
     housing = train_data.drop("median_house_value", axis=1)
     housing_labels = train_data["median_house_value"].copy()
+    # process_missing_data(housing)
+    # transform_object_to_num(housing)
+    housing_prepared, full_pipeline = pipeline_transform(housing)
+    return housing, housing_prepared, housing_labels, full_pipeline
 
-    process_missing_data(housing)
+
+def train_model():
+    housing, housing_prepared, housing_labels, full_pipeline = cleaning_data()
+    linear_reg = LinearRegression()
+    linear_reg.fix(housing_prepared, housing_labels)
+    some_data = housing.iloc[:5]
+    some_labels = housing_labels.iloc[:5]
+    some_data_prepared = full_pipeline.transform(some_data)
+    print("Predictions:\t", linear_reg.predict(some_data_prepared))
+    print("Labels:\t\t", list(some_labels))
 
 
 if __name__ == '__main__':
-    analysis_data()
-    cleaning_data()
+    # analysis_data()
+    # cleaning_data()
+    train_model()
