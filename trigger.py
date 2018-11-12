@@ -5,12 +5,14 @@ from tasks import light_gbm
 
 # g = group([light_gbm.s(i) for i in range(21, 23)]).apply_async()
 
+# (p ..., r)
 task_result = [(i, light_gbm.apply_async((i,))) for i in range(21, 60)]
 
+# do soomething
 while True:
     tag = 1
     for key in task_result:
-        if not key[1].ready():
+        if not key[-1].ready():
             tag = 0
             time.sleep(1)
             print("sleep 1")

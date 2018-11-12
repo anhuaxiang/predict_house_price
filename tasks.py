@@ -11,8 +11,8 @@ def load_data():
 
 
 # app = Celery('tasks', broker='amqp://guest:guest@localhost', backend='amqp://guest:guest@localhost')
-app = Celery('tasks',  backend='redis://127.0.0.1:6379/0', broker='redis://127.0.0.1:6379/1')
-
+app = Celery('tasks',  backend='redis://127.0.0.1:6379/1', broker='redis://127.0.0.1:6379/0')
+# app.config_from_object('celery_config')
 data, target, feature_names = load_data()
 x_train, x_test, y_train, y_test = train_test_split(data, target, test_size=0.2)
 lgb_train = lgb.Dataset(x_train, y_train)
